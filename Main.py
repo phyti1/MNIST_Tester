@@ -1,5 +1,5 @@
 
-
+import os
 from random import random
 import numpy as np
 import torchvision
@@ -131,6 +131,18 @@ class MyPaintApp(App):
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(0)
     ])
+    def set_model(self, denisty):
+        self.model = tf.keras.models.Sequential([
+                tf.keras.layers.Flatten(input_shape=(28, 28)),
+                tf.keras.layers.Dense(128, activation='relu'),
+                tf.keras.layers.Dropout(0.2),
+                tf.keras.layers.Dense(denisty)
+        ])
+        # Save the entire model as a SavedModel.
+        if not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+        self.model.save(model_dir)
+
     def flipRotate(self, input):
         # rot90(x, 3) -> counter clock wise
         return np.array([np.fliplr(np.rot90(val, 3)) for val in input])
@@ -171,13 +183,7 @@ class MyPaintApp(App):
         x_train, x_test = x_train / 255.0, x_test / 255.0
         # apply dense (result/label range) to model, reapply probablilty_model
         _maxLabelValue = int(y_train.max())
-        self.model = tf.keras.models.Sequential([
-            tf.keras.layers.Flatten(input_shape=(28, 28)),
-            tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dropout(0.2),
-            # 10 for mnist (0-9) or 62 for emnist (0-61)
-            tf.keras.layers.Dense(_maxLabelValue + 1)
-        ])
+        self.set_model(denisty=_maxLabelValue + 1)
         self.probability_model = tf.keras.Sequential([self.model, tf.keras.layers.Softmax()])
         # For each example the model returns a vector of "logits" or "log-odds" scores, one for each class.
         predictions = self.model(x_train[:1]).numpy()
@@ -190,8 +196,13 @@ class MyPaintApp(App):
         print(_newLoss)
         # https://www.tensorflow.org/api_docs/python/tf/keras/optimizers
         self.model.compile(optimizer='Adam', loss=loss_fn, metrics=['accuracy'])
+        # Create a callback that saves the model's weights
+        cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_dir,
+                                                        save_weights_only=True,
+                                                        verbose=1)
+        
         # The Model.fit method adjusts the model parameters to minimize the loss:
-        self.model.fit(x_train, y_train, epochs=1)
+        self.model.fit(x_train, y_train, epochs=50, callbacks=[cp_callback])
         # The Model.evaluate method checks the models performance, usually on a "Validation-set".
         self.model.evaluate(x_test,  y_test, verbose=2)
         self.probability_model = tf.keras.Sequential([self.model, tf.keras.layers.Softmax()])
@@ -208,25 +219,43 @@ class MyPaintApp(App):
             _bestMatch = np.argmax(_valuePredictions)
         except:
             _bestMatch = "---"
-            pass
+            return
         for i, value in enumerate(_valuePredictions):
             if(i < 10):
                 ProgressBars[i].value = value
-        BestMatchLabel.text = str(_bestMatch)
+        if(_bestMatch < 10):
+            # number 0-9
+            BestMatchLabel.text = str(_bestMatch)
+        elif(_bestMatch < 36):
+            # capital letter (-10 to get index 0-25, +65 for ascii position)
+            BestMatchLabel.text = chr(_bestMatch - 10 + 65)
+        else:
+            # small letter (-10 - 26 to get index 0-25, + 97 to get ascii position)
+            BestMatchLabel.text = chr(_bestMatch - 10 - 26 + 97)
+
         # print(_valuePredictions)
         # print(_bestMatch)
 
 _myPaintApp = MyPaintApp()
-
+checkpoint_dir = "./saved/cp-{epoch:04d}.ckpt"
+model_dir = "./saved/saved_model/"
 if __name__ == '__main__':
     # Window.size = (600, 300)
     print("")
     print("")
-    print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
-    print("")
-    print("")
+    # Note: Use tf.config.experimental.list_physical_devices('GPU') to confirm that TensorFlow is using the GPU.
     print("Is GPU avaliable: ", tf.config.list_physical_devices('GPU'))
-
+    try:
+        _myPaintApp.model = tf.keras.models.load_model(model_dir)
+        print("Restored model: " + model_dir)
+        latest = tf.train.latest_checkpoint(os.path.dirname(checkpoint_dir))
+        # Load the previously saved weights
+        _myPaintApp.model.load_weights(latest)
+        print("Restored checkpoint: " + latest)
+        _myPaintApp.probability_model = tf.keras.Sequential([_myPaintApp.model, tf.keras.layers.Softmax()])
+        print("applied probability model")
+    except:
+        pass
     #TrainModel()
 
     _myPaintApp.run()
