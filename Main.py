@@ -2,6 +2,8 @@
 
 from random import random
 import numpy as np
+import torchvision
+from torchvision import datasets, transforms
 
 from kivy.app import App
 from kivy.uix.gridlayout import GridLayout
@@ -19,8 +21,9 @@ from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.core.window import Window
 from kivy.graphics import *
 
-import tensorflow as tf
 
+import tensorflow as tf
+import tensorflow_datasets as tfds
 
 class MyPaintWidget(Widget):
 
@@ -76,7 +79,7 @@ class MyPaintWidget(Widget):
                 for columnIndex, px in enumerate(row):
                     _smallPic[0][rowIndex][columnIndex] = px/255
             # print(_smallPic)
-            applyInput(smallImage=_smallPic)
+            _myPaintApp.applyInput(smallImage=_smallPic)
 
 ValuePredictions = []
 BestMatchLabel = Label(font_size='20sp')
@@ -101,7 +104,7 @@ class MyPaintApp(App):
         _paintArea.add_widget(clearbtn)
         # train
         _trainBtn = Button(text='train', pos=(100,0))
-        _trainBtn.bind(on_release = lambda a:TrainModel())
+        _trainBtn.bind(on_release = lambda a:self.TrainModel())
         _paintArea.add_widget(_trainBtn)
 
         # top->bottom, left->right
@@ -122,50 +125,98 @@ class MyPaintApp(App):
         return root
 
 
-model = tf.keras.models.Sequential([
-        tf.keras.layers.Flatten(input_shape=(28, 28)),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.2),
-        tf.keras.layers.Dense(10)
-])
-probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
-def TrainModel():
-    mnist = tf.keras.datasets.mnist
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
-    x_train, x_test = x_train / 255.0, x_test / 255.0
+    model = tf.keras.models.Sequential([
+            tf.keras.layers.Flatten(input_shape=(28, 28)),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(0)
+    ])
+    def flipRotate(self, input):
+        # rot90(x, 3) -> counter clock wise
+        return np.array([np.fliplr(np.rot90(val, 3)) for val in input])
 
-    # For each example the model returns a vector of "logits" or "log-odds" scores, one for each class.
-    predictions = model(x_train[:1]).numpy()
-    print(predictions)
-    # The tf.nn.softmax function converts these logits to "probabilities" for each class:
-    tf.nn.softmax(predictions).numpy()
-    # The losses.SparseCategoricalCrossentropy loss takes a vector of logits and a True index and returns a scalar loss for each example.
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    _newLoss = loss_fn(y_train[:1], predictions).numpy()
-    print(_newLoss)
-    # https://www.tensorflow.org/api_docs/python/tf/keras/optimizers
-    model.compile(optimizer='Adam', loss=loss_fn, metrics=['accuracy'])
-    # The Model.fit method adjusts the model parameters to minimize the loss:
-    model.fit(x_train, y_train, epochs=5)
-    # The Model.evaluate method checks the models performance, usually on a "Validation-set".
-    model.evaluate(x_test,  y_test, verbose=2)
     probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
-    # The image classifier is now trained to ~98% accuracy on this dataset. To learn more, read the TensorFlow tutorials.
-    # If you want your model to return a probability, you can wrap the trained model, and attach the softmax to it:
-    probability_model(x_test[:5])
+    def TrainModel(self):
+        #region mnist
+        # mnist = tf.keras.datasets.mnist
+        # (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        #endregion
 
-def applyInput(smallImage):
-    # probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
-    # array3d = _npSmallImage[..., np.newaxis]
-    _predicitons = probability_model.predict(smallImage)
-    _valuePredictions = _predicitons[0]
-    _bestMatch = np.argmax(_valuePredictions)
-    for i, value in enumerate(_valuePredictions):
-        ProgressBars[i].value = value
-    BestMatchLabel.text = str(_bestMatch)
-    print(_valuePredictions)
-    # print(_bestMatch)
+        #region emnist
+        #region old, slow
+        # batch_size=-1 to get the full dataset in NumPy arrays from the returned tf.Tensor object
+        # https://stackoverflow.com/questions/48532761/letters-in-emnist-training-dataset-are-rotated-and-little-vague
+        # emnistTrain, emnistTest = tfds.load(name="emnist", split=[tfds.Split.TRAIN, tfds.Split.TEST], data_dir="D:\\tensorflow_datasets\\", batch_size=-1)
+        # emnistTrain = tfds.as_numpy(emnistTrain)
+        # emnistTest = tfds.as_numpy(emnistTest)
+        # # seperate the x and y and removes unneccessary 4th dimension
+        # x_train, y_train = emnistTrain["image"], emnistTrain["label"] 
+        # x_test, y_test = emnistTest["image"], emnistTest["label"]
+        # # https://stackoverflow.com/questions/37152031/numpy-remove-a-dimension-from-np-array
+        # x_train = x_train[:, :, :, 0]
+        # x_test = x_test[:, :, :, 0]
+        #endregion
 
+        _transformFix = torchvision.transforms.Compose([
+                lambda img: torchvision.transforms.functional.rotate(img, -90),
+                lambda img: torchvision.transforms.functional.hflip(img),
+                torchvision.transforms.ToTensor()
+            ])
+        emnistTrain = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=True)
+        emnistTest = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=False)
+        x_train, y_train, x_test, y_test = self.flipRotate(emnistTrain.train_data.numpy()), emnistTrain.train_labels.numpy(), self.flipRotate(emnistTest.test_data.numpy()), emnistTest.test_labels.numpy()
+        #endregion
+
+        # get values from 0 to 1
+        x_train, x_test = x_train / 255.0, x_test / 255.0
+        # apply dense (result/label range) to model, reapply probablilty_model
+        _maxLabelValue = int(y_train.max())
+        self.model = tf.keras.models.Sequential([
+            tf.keras.layers.Flatten(input_shape=(28, 28)),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            # 10 for mnist (0-9) or 62 for emnist (0-61)
+            tf.keras.layers.Dense(_maxLabelValue + 1)
+        ])
+        self.probability_model = tf.keras.Sequential([self.model, tf.keras.layers.Softmax()])
+        # For each example the model returns a vector of "logits" or "log-odds" scores, one for each class.
+        predictions = self.model(x_train[:1]).numpy()
+        print(predictions)
+        # The tf.nn.softmax function converts these logits to "probabilities" for each class:
+        tf.nn.softmax(predictions).numpy()
+        # The losses.SparseCategoricalCrossentropy loss takes a vector of logits and a True index and returns a scalar loss for each example.
+        loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        _newLoss = loss_fn(y_train[:1], predictions).numpy()
+        print(_newLoss)
+        # https://www.tensorflow.org/api_docs/python/tf/keras/optimizers
+        self.model.compile(optimizer='Adam', loss=loss_fn, metrics=['accuracy'])
+        # The Model.fit method adjusts the model parameters to minimize the loss:
+        self.model.fit(x_train, y_train, epochs=1)
+        # The Model.evaluate method checks the models performance, usually on a "Validation-set".
+        self.model.evaluate(x_test,  y_test, verbose=2)
+        self.probability_model = tf.keras.Sequential([self.model, tf.keras.layers.Softmax()])
+        # The image classifier is now trained to ~98% accuracy on this dataset. To learn more, read the TensorFlow tutorials.
+        # If you want your model to return a probability, you can wrap the trained model, and attach the softmax to it:
+        self.probability_model(x_test[:5])
+
+    def applyInput(self, smallImage):
+        # probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
+        # array3d = _npSmallImage[..., np.newaxis]
+        _predicitons = self.probability_model.predict(smallImage)
+        _valuePredictions = _predicitons[0]
+        try:
+            _bestMatch = np.argmax(_valuePredictions)
+        except:
+            _bestMatch = "---"
+            pass
+        for i, value in enumerate(_valuePredictions):
+            if(i < 10):
+                ProgressBars[i].value = value
+        BestMatchLabel.text = str(_bestMatch)
+        # print(_valuePredictions)
+        # print(_bestMatch)
+
+_myPaintApp = MyPaintApp()
 
 if __name__ == '__main__':
     # Window.size = (600, 300)
@@ -175,6 +226,7 @@ if __name__ == '__main__':
     print("")
     print("")
     print("Is GPU avaliable: ", tf.config.list_physical_devices('GPU'))
+
     #TrainModel()
 
-    MyPaintApp().run()
+    _myPaintApp.run()
