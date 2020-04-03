@@ -21,6 +21,10 @@ from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.core.window import Window
 from kivy.graphics import *
 
+import matplotlib
+matplotlib.use('module://kivy.garden.matplotlib.backend_kivy')
+from kivy.garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -80,6 +84,10 @@ class MyPaintWidget(Widget):
                     _smallPic[0][rowIndex][columnIndex] = px/255
             # print(_smallPic)
             _myPaintApp.applyInput(smallImage=_smallPic)
+            # display output
+            _smallPic = np.array(_smallPic, dtype='float')
+            pixels = _smallPic.reshape((28, 28))
+            _myPaintApp.plot = plt.imshow(pixels, cmap='gray')
 
 ValuePredictions = []
 BestMatchLabel = Label(font_size='20sp')
@@ -103,10 +111,11 @@ class MyPaintApp(App):
         clearbtn.bind(on_release = lambda a:self.clear_canvas())
         _paintArea.add_widget(clearbtn)
         # train
-        _trainBtn = Button(text='train', pos=(100,0))
+        _trainBtn = Button(text='train', pos=(0,110))
         _trainBtn.bind(on_release = lambda a:self.TrainModel())
         _paintArea.add_widget(_trainBtn)
 
+        _paintArea.add_widget(FigureCanvasKivyAgg(plt.gcf()))
         # top->bottom, left->right
         _settingsStack = BoxLayout(orientation='vertical')
         for i in range(10):
