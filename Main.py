@@ -2,6 +2,7 @@
 import os
 from random import random
 import numpy as np
+from enum import Enum
 import torchvision
 from torchvision import datasets, transforms
 
@@ -16,18 +17,25 @@ from kivy.uix.widget import Widget
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.slider import Slider
+from kivy.uix.dropdown import DropDown
 from kivy.uix.progressbar import ProgressBar
+from kivy.uix.textinput import TextInput
 from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.core.window import Window
 from kivy.graphics import *
 
 import matplotlib
-matplotlib.use('module://kivy.garden.matplotlib.backend_kivy')
-from kivy.garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
+# matplotlib.use('module://kivy.garden.matplotlib.backend_kivy')
+# from kivy.garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+
+class DatasetsE(Enum):
+    Zero = 0
+    MNSIT = 1
+    EMNIST = 2
 
 class MyPaintWidget(Widget):
 
@@ -84,38 +92,76 @@ class MyPaintWidget(Widget):
                     _smallPic[0][rowIndex][columnIndex] = px/255
             # print(_smallPic)
             _myPaintApp.applyInput(smallImage=_smallPic)
-            # display output
-            _smallPic = np.array(_smallPic, dtype='float')
-            pixels = _smallPic.reshape((28, 28))
-            _myPaintApp.plot = plt.imshow(pixels, cmap='gray')
+
+class DatasetDropDown(DropDown):
+    def on_kv_post(self, args):
+        _myPaintApp.ActiveDataset = args
+        btn = Button(text='MNIST', size_hint_y=None, height=44)
+        def apply_MNIST(Button):
+            self.select(Button.text)
+            _myPaintApp.ActiveDataset = DatasetsE.MNSIT
+        btn.bind(on_release=apply_MNIST)
+        self.add_widget(btn)
+        btn = Button(text='EMNIST', size_hint_y=None, height=44)
+        def apply_EMNIST(Button):
+            self.select(Button.text)
+            _myPaintApp.ActiveDataset = DatasetsE.EMNIST
+        btn.bind(on_release=apply_EMNIST)            
+        self.add_widget(btn)
 
 ValuePredictions = []
 BestMatchLabel = Label(font_size='20sp')
 ProgressBars = [ProgressBar(max=1) for i in range(10)]
+
 class MyPaintApp(App):
+    ActiveDataset = DatasetsE.Zero
+    _epochs = 5
+    _smallImage = []
 
     def clear_canvas(self):
         self.painter.canvas.clear()
         self.painter.on_kv_post(None)
-
+    
+    def build_plot(self):
+            # display output
+            _smallPic = np.array(self._smallImage, dtype='float')
+            if(len(_smallPic) == 0):
+                return
+            pixels = _smallPic.reshape((28, 28))
+            _myPaintApp.plot = plt.imshow(pixels, cmap='gray')
+            plt.show()
+    
     def build(self):
         root = FloatLayout()
-        # MUSS durck 28 dividierbar sein und quadratisch
-        self.painter = MyPaintWidget(width = 476, height = 476, x=100, y=100)
+        # MUSS durch 28 dividierbar und quadratisch sein
+        self.painter = MyPaintWidget(width = 476, height = 476, x=120, y=10)
 
         _paintArea = Widget()
-        _paintArea.x = 100
+        _paintArea.x = 110
         _paintArea.add_widget(self.painter)
         # clear
-        clearbtn = Button(text='Clear')
+        clearbtn = Button(text='Clear', pos=(10, 10))
         clearbtn.bind(on_release = lambda a:self.clear_canvas())
         _paintArea.add_widget(clearbtn)
         # train
-        _trainBtn = Button(text='train', pos=(0,110))
+        _trainBtn = Button(text='train', pos=(10,400), height=44)
         _trainBtn.bind(on_release = lambda a:self.TrainModel())
         _paintArea.add_widget(_trainBtn)
-
-        _paintArea.add_widget(FigureCanvasKivyAgg(plt.gcf()))
+        # epochs
+        _paintArea.add_widget(Label(text='Epochs/training\niterations:', pos=(10,350), height=55))
+        _epochInput = TextInput(text=str(self._epochs), multiline=False, pos=(80,350), height=28, width=28)
+        _epochInput.bind(on_text_validate=lambda instance, value: self._epochs.__setattr__(value))
+        _paintArea.add_widget(_epochInput)
+        # dataset selector
+        _dropdown = DatasetDropDown()
+        _selectButton = Button(text='Select Dataset', size_hint=(None, None), pos=(10,300), height=44)
+        _selectButton.bind(on_release=_dropdown.open)
+        _dropdown.bind(on_select=lambda instance, x: setattr(_selectButton, 'text', x))
+        _paintArea.add_widget(_selectButton)
+        _plotButton = Button(text='show plot', pos=(10,110), height=44)
+        _plotButton.bind(on_release=lambda a: self.build_plot())
+        _paintArea.add_widget(_plotButton)
+        # _paintArea.add_widget(FigureCanvasKivyAgg(plt.gcf()))
         # top->bottom, left->right
         _settingsStack = BoxLayout(orientation='vertical')
         for i in range(10):
@@ -126,7 +172,7 @@ class MyPaintApp(App):
         _settingsStack.add_widget(Label(text="Best match: "))
 
         _settingsStack.add_widget(BestMatchLabel)
-        _settingsStack.pos=(600,0)
+        _settingsStack.pos=(620,0)
         _settingsStack.size_hint=(0.2,1)
         root.add_widget(_paintArea)
         root.add_widget(_settingsStack)
@@ -159,8 +205,9 @@ class MyPaintApp(App):
     probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
     def TrainModel(self):
         #region mnist
-        # mnist = tf.keras.datasets.mnist
-        # (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        if(self.ActiveDataset == DatasetsE.MNSIT):
+            mnist = tf.keras.datasets.mnist
+            (x_train, y_train), (x_test, y_test) = mnist.load_data()
         #endregion
 
         #region emnist
@@ -177,17 +224,19 @@ class MyPaintApp(App):
         # x_train = x_train[:, :, :, 0]
         # x_test = x_test[:, :, :, 0]
         #endregion
-
-        _transformFix = torchvision.transforms.Compose([
-                lambda img: torchvision.transforms.functional.rotate(img, -90),
-                lambda img: torchvision.transforms.functional.hflip(img),
-                torchvision.transforms.ToTensor()
-            ])
-        emnistTrain = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=True)
-        emnistTest = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=False)
-        x_train, y_train, x_test, y_test = self.flipRotate(emnistTrain.train_data.numpy()), emnistTrain.train_labels.numpy(), self.flipRotate(emnistTest.test_data.numpy()), emnistTest.test_labels.numpy()
+        elif(self.ActiveDataset == DatasetsE.EMNIST):
+            _transformFix = torchvision.transforms.Compose([
+                    lambda img: torchvision.transforms.functional.rotate(img, -90),
+                    lambda img: torchvision.transforms.functional.hflip(img),
+                    torchvision.transforms.ToTensor()
+                ])
+            emnistTrain = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=True)
+            emnistTest = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=False)
+            x_train, y_train, x_test, y_test = self.flipRotate(emnistTrain.train_data.numpy()), emnistTrain.train_labels.numpy(), self.flipRotate(emnistTest.test_data.numpy()), emnistTest.test_labels.numpy()
         #endregion
-
+        else:
+            print("Error: no database was selected")
+            return
         # get values from 0 to 1
         x_train, x_test = x_train / 255.0, x_test / 255.0
         # apply dense (result/label range) to model, reapply probablilty_model
@@ -211,7 +260,7 @@ class MyPaintApp(App):
                                                         verbose=1)
         
         # The Model.fit method adjusts the model parameters to minimize the loss:
-        self.model.fit(x_train, y_train, epochs=50, callbacks=[cp_callback])
+        self.model.fit(x_train, y_train, epochs=self._epochs, callbacks=[cp_callback])
         # The Model.evaluate method checks the models performance, usually on a "Validation-set".
         self.model.evaluate(x_test,  y_test, verbose=2)
         self.probability_model = tf.keras.Sequential([self.model, tf.keras.layers.Softmax()])
@@ -222,6 +271,7 @@ class MyPaintApp(App):
     def applyInput(self, smallImage):
         # probability_model = tf.keras.Sequential([model, tf.keras.layers.Softmax()])
         # array3d = _npSmallImage[..., np.newaxis]
+        self._smallImage = smallImage
         _predicitons = self.probability_model.predict(smallImage)
         _valuePredictions = _predicitons[0]
         try:
