@@ -114,9 +114,17 @@ BestMatchLabel = Label(font_size='20sp')
 ProgressBars = [ProgressBar(max=1) for i in range(10)]
 
 class MyPaintApp(App):
+
     ActiveDataset = DatasetsE.Zero
     _epochs = 5
+    _datasetPath = "C:\\tensorflow_datasets\\"
     _smallImage = []
+
+    def SetDatabasePath(self, instance, value):
+        self._datasetPath = value
+
+    def SetEpochs(self, instance, value):
+        self._epochs = int(value)
 
     def clear_canvas(self):
         self.painter.canvas.clear()
@@ -139,10 +147,14 @@ class MyPaintApp(App):
         _paintArea = Widget()
         _paintArea.x = 110
         _paintArea.add_widget(self.painter)
+        # path
+        _datasetPathInput = TextInput(text=self._datasetPath, multiline=False, pos=(10,500), height=28, width=500)
+        _datasetPathInput.bind(text=self.SetDatabasePath)
+        _paintArea.add_widget(_datasetPathInput)
         # clear
-        clearbtn = Button(text='Clear', pos=(10, 10))
-        clearbtn.bind(on_release = lambda a:self.clear_canvas())
-        _paintArea.add_widget(clearbtn)
+        _clearbtn = Button(text='Clear', pos=(10, 10))
+        _clearbtn.bind(on_release = lambda a:self.clear_canvas())
+        _paintArea.add_widget(_clearbtn)
         # train
         _trainBtn = Button(text='train', pos=(10,400), height=44)
         _trainBtn.bind(on_release = lambda a:self.TrainModel())
@@ -150,7 +162,7 @@ class MyPaintApp(App):
         # epochs
         _paintArea.add_widget(Label(text='Epochs/training\niterations:', pos=(10,350), height=55))
         _epochInput = TextInput(text=str(self._epochs), multiline=False, pos=(80,350), height=28, width=28)
-        _epochInput.bind(on_text_validate=lambda instance, value: self._epochs.__setattr__(value))
+        _epochInput.bind(text=self.SetEpochs)
         _paintArea.add_widget(_epochInput)
         # dataset selector
         _dropdown = DatasetDropDown()
@@ -230,8 +242,8 @@ class MyPaintApp(App):
                     lambda img: torchvision.transforms.functional.hflip(img),
                     torchvision.transforms.ToTensor()
                 ])
-            emnistTrain = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=True)
-            emnistTest = torchvision.datasets.EMNIST("D:\\tensorflow_datasets\\", download=True, split='byclass', train=False)
+            emnistTrain = torchvision.datasets.EMNIST(self._datasetPath, download=True, split='byclass', train=True)
+            emnistTest = torchvision.datasets.EMNIST(self._datasetPath, download=True, split='byclass', train=False)
             x_train, y_train, x_test, y_test = self.flipRotate(emnistTrain.train_data.numpy()), emnistTrain.train_labels.numpy(), self.flipRotate(emnistTest.test_data.numpy()), emnistTest.test_labels.numpy()
         #endregion
         else:
